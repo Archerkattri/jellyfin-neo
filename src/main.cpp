@@ -631,7 +631,11 @@ int main(int argc, char *argv[])
         WindowManager::Get().raiseWindow();
       });
     });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     engine->loadFromModule(QStringLiteral("JellyfinDesktop"), QStringLiteral("Webview"));
+#else
+    engine->load(QUrl(QStringLiteral("qrc:/qt/qml/JellyfinDesktop/Webview.qml")));
+#endif
 
     // run our application
     int ret = app.exec();
