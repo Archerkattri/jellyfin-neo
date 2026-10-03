@@ -90,7 +90,7 @@ RUN mkdir -p /AppDir/usr/share/jellyfin-desktop && \
     { \
         printf 'Qt version: %s\n' "$(pkg-config --modversion Qt6Core)"; \
         printf 'Arch repository snapshot: %s\n' "$ARCH_SNAPSHOT"; \
-        pacman -Q qt6-base qt6-declarative qt6-webengine qt6-webchannel; \
+        pacman -Q qt6-base qt6-declarative qt6-webengine qt6-webchannel qt6-serialport; \
     } > /AppDir/usr/share/jellyfin-desktop/qt-runtime-version.txt
 
 # Strip out files that aren't needed at runtime to reduce AppImage size

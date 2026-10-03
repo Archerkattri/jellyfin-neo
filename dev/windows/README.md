@@ -63,13 +63,13 @@ rmdir /s /q build
 dev\windows\build.bat
 ```
 
-## ARM64 (cross-compiled)
+## ARM64
 
-Windows ARM64 binaries are cross-compiled from the
-`win64_msvc2022_arm64_cross_compiled` Qt package plus an x64 host Qt. CI builds
-both architectures: the `windows-arm64` job runs on a `windows-11-arm` runner
-with full unit tests, because the Qt deployment tool (`windeployqt.exe`) is
-itself an ARM64 binary and cannot run on x64 Windows.
+CI builds ARM64 natively on a `windows-11-arm` runner with the
+`win64_msvc2022_arm64` Qt package (`windeployqt.exe` is itself an ARM64
+binary and cannot run on x64 Windows). Local builds on an ARM64 machine do
+the same automatically. Local builds on an x64 machine cross-compile from
+the `win64_msvc2022_arm64_cross_compiled` Qt package plus an x64 host Qt.
 
 For a local ARM64 build, set `WINARCH` before running the scripts:
 

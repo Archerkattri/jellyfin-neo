@@ -24,6 +24,7 @@ public:
   void resetValue(const QString& key);
   void resetValues();
   void registerSetting(SettingsValue* value);
+  SettingsValue* findValue(const QString& key);
   bool isHidden() const;
 
   QVariant value(const QString& key);

@@ -21,6 +21,12 @@ void SettingsSection::registerSetting(SettingsValue* value)
   m_values[value->key()] = value;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+SettingsValue* SettingsSection::findValue(const QString& key)
+{
+  return m_values.value(key, nullptr);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 void SettingsSection::setValues(const QVariant& values)
 {

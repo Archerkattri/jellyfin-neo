@@ -777,6 +777,18 @@
     ]
   },
   {
+    "section": "plugins",
+    "order": 5,
+    "values": [
+      {
+        "value": "enabled",
+        "display_name": "Enable Plugins",
+        "help": "Master switch for client plugins. Each discovered plugin adds its own per-plugin toggle key to this section; plugins stay disabled until explicitly enabled.",
+        "default": false
+      }
+    ]
+  },
+  {
     "section": "path",
     "hidden": true,
     "values": [

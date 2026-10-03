@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QNetworkRequest>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -24,6 +25,7 @@
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
 
 #include "input/InputComponent.h"
+#include "plugins/PluginComponent.h"
 #include "SystemComponent.h"
 #include "Version.h"
 #include "settings/SettingsComponent.h"
@@ -612,6 +614,117 @@ void SystemComponent::hello(const QString& version)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+// Tier-1 web plugins (Phase 1): build the script blob appended after nativeshell.
+// Input is the Phase-0 scanner output (PluginComponent::plugins()); manifests were
+// already validated at scan time, and each script is additionally gated client-side
+// on window._validatePluginManifest (native/pluginManifest.js, injected above).
+// Enable contract (Phase 1): the static "plugins.enabled" master toggle gates
+// everything; per-plugin flags live in the same section keyed by bare plugin
+// id (default off). Discovered web plugins get a visible modal toggle each;
+// persisted flags survive config load as hidden dynamic values and are reused
+// here, never double-registered. A missing section, key, or plugins dir only
+// skips (never fatal).
+static QString loadTier1PluginScripts()
+{
+  QString scripts;
+
+  const QString dir = PluginComponent::pluginsDir();
+  if (dir.isEmpty())
+    return scripts; // No active profile on early CLI paths.
+  if (!QDir(dir).exists())
+    return scripts; // No plugins installed; not an error.
+
+  SettingsSection* section = SettingsComponent::Get().getSection("plugins");
+  if (section)
+  {
+    int order = 0;
+    for (const PluginManifest& manifest : PluginComponent::Get().plugins())
+    {
+      if (manifest.tier != QStringLiteral("web"))
+        continue;
+      if (manifest.id == QStringLiteral(".") || manifest.id == QStringLiteral(".."))
+        continue; // Unsafe ids never get toggles either.
+      const QString label = QStringLiteral("Enable %1").arg(manifest.id);
+      if (SettingsValue* existing = section->findValue(manifest.id))
+      {
+        existing->setDisplayName(label);
+        existing->setHelp(QStringLiteral("Load this plugin at startup (takes effect on restart)."));
+        existing->setHidden(false);
+        existing->setIndexOrder(100 + order++);
+      }
+      else
+      {
+        auto* toggle = new SettingsValue(manifest.id, false);
+        toggle->setDisplayName(label);
+        toggle->setHelp(QStringLiteral("Load this plugin at startup (takes effect on restart)."));
+        toggle->setHidden(false);
+        toggle->setIndexOrder(100 + order++);
+        section->registerSetting(toggle);
+      }
+    }
+  }
+
+  QVariantMap pluginSettings;
+  if (section)
+    pluginSettings = section->allValues();
+  if (!pluginSettings.value(QStringLiteral("enabled")).toBool())
+  {
+    qDebug() << "Plugins are disabled (plugins.enabled is off); skipping Tier-1 script load";
+    return scripts;
+  }
+
+  for (const PluginManifest& manifest : PluginComponent::Get().plugins())
+  {
+    if (manifest.tier != QStringLiteral("web"))
+      continue; // Tier-2 ("native") plugins load in Phase 2, not here.
+    if (!pluginSettings.value(manifest.id).toBool())
+    {
+      qDebug() << "Plugin" << manifest.id << "is disabled; skipping";
+      continue;
+    }
+    if (manifest.id == QStringLiteral(".") || manifest.id == QStringLiteral(".."))
+    {
+      qWarning() << "Plugin has unsafe id; skipping";
+      continue;
+    }
+    QString entryFile = manifest.entry;
+    if (!entryFile.endsWith(QStringLiteral(".js"), Qt::CaseInsensitive))
+      entryFile += QStringLiteral(".js");
+    const QString scriptPath = QDir(dir).filePath(manifest.id + "/" + entryFile);
+    QFile scriptFile(scriptPath);
+    if (!scriptFile.open(QIODevice::ReadOnly))
+    {
+      qWarning() << "Plugin" << manifest.id << "entry" << scriptPath << "is missing or unreadable; skipping";
+      continue;
+    }
+
+    QJsonObject gateManifest;
+    gateManifest.insert("id", manifest.id);
+    gateManifest.insert("version", manifest.version);
+    gateManifest.insert("apiVersion", QJsonValue::fromVariant(manifest.apiVersion));
+    gateManifest.insert("tier", manifest.tier);
+    gateManifest.insert("entry", manifest.entry);
+    QJsonArray capabilities;
+    for (const QString& capability : manifest.capabilities)
+      capabilities.append(capability);
+    gateManifest.insert("capabilities", capabilities);
+    const QString gateJson =
+      QString::fromUtf8(QJsonDocument(gateManifest).toJson(QJsonDocument::Compact));
+
+    scripts += QStringLiteral("\n// Tier-1 plugin: ") + manifest.id + QStringLiteral("\n");
+    scripts += QStringLiteral(";(function() {\n"
+                              "var manifest = ") + gateJson + QStringLiteral(";\n"
+                              "if (typeof window._validatePluginManifest !== \"function\") { return; }\n"
+                              "var gate = window._validatePluginManifest(manifest);\n"
+                              "if (!gate || !gate.ok) { return; }\n");
+    scripts += QTextStream(&scriptFile).readAll();
+    scripts += QStringLiteral("\n})();\n");
+  }
+
+  return scripts;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
 QString SystemComponent::getNativeShellScript()
 {
   static QString cachedScript;
@@ -673,13 +786,17 @@ QString SystemComponent::getNativeShellScript()
     ":/web-client/extension/updatePlugin.js",
     ":/web-client/extension/connectivityHelper.js",
     ":/web-client/extension/downloadSpike.js",
-    ":/web-client/extension/nativeshell.js"
+    ":/web-client/extension/nativeshell.js",
+    // Client-side gate for the Tier-1 plugin scripts appended below; the
+    // gate no-ops (fail-closed) when a manifest does not validate.
+    ":/web-client/extension/pluginManifest.js"
   };
 
   cachedScript = jmpInfoDeclaration;
   for (const QString& scriptPath : scriptPaths) {
     cachedScript += loadScript(scriptPath) + "\n";
   }
+  cachedScript += loadTier1PluginScripts();
 
   return cachedScript;
 }

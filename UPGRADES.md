@@ -84,7 +84,7 @@ Release-gate companion: [Jellyfin Desktop Roadmap Update](reports/Jellyfin%20Des
 
 | Upgrade | Demand / source | Status |
 |---|---|---|
-| Client plugin API (unblocks Discord Rich Presence, Chromecast w/o proprietary blobs) | [#1186](https://github.com/jellyfin/jellyfin-desktop/issues/1186) | `partial` (design + wave-8 Phase 0 skeleton landed: src/plugins/api/ contract + fail-closed manifest validator + profile scanner, JS mirror + 6 tests, suite 91/91; Phase 1 = Tier-1 web-plugin loading when a consumer exists — see research_notes/wave8/plugin-phase0-REPORT.md) |
+| Client plugin API (unblocks Discord Rich Presence, Chromecast w/o proprietary blobs) | [#1186](https://github.com/jellyfin/jellyfin-desktop/issues/1186) | `partial` (design + wave-8 Phase 0 skeleton landed: src/plugins/api/ contract + fail-closed manifest validator + profile scanner, JS mirror + 6 tests, suite 91/91; Phase 1 LANDED (wave 10): Tier-1 loader + JellyfinDesktop host object + plugins settings section + per-plugin toggles + sample theme plugin, 25 tests, suite 116/116; contract = master `plugins.enabled` gate AND per-id flags (flat `<id>` keys) — see research_notes/wave10/ in the private archive) |
 
 ## 8. Plex-churn drivers (why people won't switch / why they leave Plex)
 
@@ -289,6 +289,32 @@ Review cautions (from roadmap report, Sep 23–Oct 2 delta):
   UPGRADES.md kept as the public roadmap with an archive note; unlogged "23 targets" relabeled to prose.
 - Verification: node suite 91/91; post-sweep rebuild exit 0 (22 targets, 0 warnings) + ctest 6/6, log
   saved. Reports: research_notes/wave9/ in the private archive (slop-cpp/js/docs/repo/secrets/build).
+
+## Wave 10 — plugin Phase 1 + first CI green campaign (2026-10-03, 4 lanes + owner)
+
+- Plugin Phase 1 LANDED (loader/host/settings/sample lanes, disjoint files): Tier-1 loader appends
+  enabled web-plugin scripts (scanner output + path + tier + enable gates, startup never fails);
+  `window.JellyfinDesktop` host object (version/pluginId/events/log/settings/namespaced plugin
+  commands, fail-closed validation, inert when absent); `plugins` settings section with master
+  `enabled` toggle (default off, no __meta__ bump); sample theme plugin (badge + playback
+  subscription, defensive, install README). 22 lane tests + 3 owner tests (master-gate guard,
+  toggle-registration guard, sample-x-real-host integration), suite 116/116.
+- Owner alignment (lanes disagreed on the enable contract): loader honors master
+  `plugins.enabled` AND flat per-id flags (`<id>`, not `<id>.enabled`); discovered web plugins
+  get visible modal toggles via new `SettingsSection::findValue` (persisted flags reused, never
+  double-registered — verified against loadConf's auto-create path). Retired the one superseded
+  Phase-0 loader assertion; adjusted 2 tests for the restructure (intent preserved).
+- First CI campaign on Archerkattri/jellyfin-neo: windows-x64 PASS, macos-arm64 PASS, player-js
+  3/3 OSes PASS. Fixed forward: (1) AppImage pacman-7 mirrorlist (headers broke registration);
+  (2) test.yml distro-Qt gap (control intentionally omits Qt — added apt Qt6 dev pkgs) + offscreen
+  ctest; (3) windows-arm64 converted cross→native (Qt SHIPS native win64_msvc2022_arm64 — the old
+  premise was wrong; deleted host-tools step + qt-cmake branch; dev scripts keep cross for x64
+  hosts, native on ARM64 hosts; ext-fetch maps extended with sidecar-verified native SHA1s);
+  (4) AppImage serialport audit gap (installed but unrecorded); (5) mac-intel mpv brew failure
+  diagnosed as Homebrew infra flake (CurlDownloadStrategy NameError + patch checksum), rerun.
+- Verification: node suite 116/116; Linux rebuild exit 0 + 0 warnings + ctest 6/6 (one transient
+  DrvFs EFAULT flake cleared on retry — environmental, not code). Reports: research_notes/wave10/
+  in the private archive (loader/host/settings/sample).
 
 ## Caveat sweep (2026-10-02 websearch)
 

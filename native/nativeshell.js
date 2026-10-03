@@ -84,6 +84,205 @@ window.NativeShell = {
     }
 };
 
+// Phase 1 (Tier-1 web plugins): window.JellyfinDesktop host object. A single
+// shared, inert-by-default surface for JS-only plugins, evaluated once right
+// after window.NativeShell so it exists before any plugin script appended
+// after nativeshell at DocumentCreation/MainWorld: version info, an events
+// wrapper over window.api signals, read-only settings (+ change
+// subscription), and the allowlisted host entry point. Every method degrades
+// to a safe no-op when window.api is unavailable, and the plugin context
+// stays null until a manifest passes window._validatePluginManifest
+// (fail-closed; the validator lives in native/pluginManifest.js and is wired
+// in by the loader lane -- never reimplemented here). Deliberately no
+// Phase-2 surface: no capability checks, no plugin host-command verbs, no
+// WebChannel publishing, no signatures.
+if (typeof window.JellyfinDesktop === 'undefined') {
+    try {
+        window.JellyfinDesktop = (() => {
+            const API_VERSION = 1;
+            const subscriptions = [];
+            const context = { id: null, version: null };
+
+            function apiObject(name) {
+                if (typeof name !== 'string' || !window.api) {
+                    return undefined;
+                }
+                return window.api[name];
+            }
+
+            function findSubscription(objectName, signalName, callback) {
+                return subscriptions.findIndex(entry => (
+                    entry.objectName === objectName
+                    && entry.signalName === signalName
+                    && entry.callback === callback
+                ));
+            }
+
+            return {
+                apiVersion: API_VERSION,
+                appVersion: (() => {
+                    try {
+                        return jmpInfo && typeof jmpInfo.version === 'string' ? jmpInfo.version : '';
+                    } catch (e) {
+                        return '';
+                    }
+                })(),
+                get pluginId() {
+                    return context.id;
+                },
+                plugin: {
+                    get id() {
+                        return context.id;
+                    },
+                    get version() {
+                        return context.version;
+                    },
+                    // Opaque in Phase 1: Tier-1 plugins get no file access and
+                    // per-plugin data dirs are owned by the loader lane.
+                    get dataDir() {
+                        return null;
+                    }
+                },
+                events: {
+                    on(objectName, signalName, callback) {
+                        try {
+                            if (typeof objectName !== 'string' || typeof signalName !== 'string'
+                                    || typeof callback !== 'function') {
+                                return false;
+                            }
+                            const target = apiObject(objectName);
+                            const signal = target ? target[signalName] : undefined;
+                            if (!signal || typeof signal.connect !== 'function') {
+                                return false;
+                            }
+                            if (findSubscription(objectName, signalName, callback) !== -1) {
+                                return true;
+                            }
+                            const wrapped = (...args) => {
+                                try {
+                                    callback(...args);
+                                } catch (e) {
+                                    console.error('JellyfinDesktop event handler failed:', e);
+                                }
+                            };
+                            signal.connect(wrapped);
+                            subscriptions.push({ objectName, signalName, callback, wrapped });
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
+                    },
+                    off(objectName, signalName, callback) {
+                        try {
+                            const index = findSubscription(objectName, signalName, callback);
+                            if (index === -1) {
+                                return false;
+                            }
+                            const [entry] = subscriptions.splice(index, 1);
+                            const target = apiObject(objectName);
+                            const signal = target ? target[signalName] : undefined;
+                            if (signal && typeof signal.disconnect === 'function') {
+                                signal.disconnect(entry.wrapped);
+                            }
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
+                    }
+                },
+                settings: {
+                    get(section, key) {
+                        try {
+                            if (typeof section !== 'string' || typeof key !== 'string') {
+                                return undefined;
+                            }
+                            const group = jmpInfo && jmpInfo.settings ? jmpInfo.settings[section] : undefined;
+                            return group ? group[key] : undefined;
+                        } catch (e) {
+                            return undefined;
+                        }
+                    },
+                    onChange(callback) {
+                        try {
+                            if (typeof callback !== 'function'
+                                    || !jmpInfo || !Array.isArray(jmpInfo.settingsUpdate)) {
+                                return () => {};
+                            }
+                            const wrapped = (section, data) => {
+                                try {
+                                    callback(section, data);
+                                } catch (e) {
+                                    console.error('JellyfinDesktop settings handler failed:', e);
+                                }
+                            };
+                            jmpInfo.settingsUpdate.push(wrapped);
+                            return () => {
+                                const index = jmpInfo.settingsUpdate.indexOf(wrapped);
+                                if (index !== -1) {
+                                    jmpInfo.settingsUpdate.splice(index, 1);
+                                }
+                            };
+                        } catch (e) {
+                            return () => {};
+                        }
+                    }
+                },
+                host: {
+                    openExternalUrl(url) {
+                        try {
+                            if (typeof url !== 'string' || url.length === 0) {
+                                return false;
+                            }
+                            const system = apiObject('system');
+                            if (!system || typeof system.openExternalUrl !== 'function') {
+                                return false;
+                            }
+                            system.openExternalUrl(url);
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
+                    },
+                    log(...args) {
+                        try {
+                            if (context.id) {
+                                console.log('[plugin:' + context.id + ']', ...args);
+                            } else {
+                                console.log(...args);
+                            }
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
+                    }
+                },
+                // Internal: loader/plugin bootstrap only. Records the calling
+                // plugin's id/version after the shared manifest gate passes.
+                _registerPlugin(manifest) {
+                    try {
+                        if (typeof window._validatePluginManifest !== 'function') {
+                            return { ok: false, error: 'manifest validator unavailable' };
+                        }
+                        const result = window._validatePluginManifest(manifest);
+                        if (!result || result.ok !== true) {
+                            return { ok: false, error: result && result.error ? result.error : 'invalid manifest' };
+                        }
+                        context.id = result.manifest.id;
+                        context.version = result.manifest.version;
+                        return { ok: true, id: context.id, version: context.version };
+                    } catch (e) {
+                        return { ok: false, error: String(e && e.message ? e.message : e) };
+                    }
+                }
+            };
+        })();
+        // Tier-1 prose name for host.log; same allowlisted entry point.
+        window.JellyfinDesktop.host.jsLog = window.JellyfinDesktop.host.log;
+    } catch (e) {
+        console.error('JellyfinDesktop host init failed:', e);
+    }
+}
+
 function getDeviceProfile() {
     const CodecProfiles = [];
 

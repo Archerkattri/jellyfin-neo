@@ -27,8 +27,9 @@
     Qt version of the SDK (default: 6.12.0). Only 6.12.x is accepted.
 
 .PARAMETER QtArch
-    aqt architecture: win64_msvc2022_64 (default) or
-    win64_msvc2022_arm64_cross_compiled.
+    aqt architecture: win64_msvc2022_64 (default),
+    win64_msvc2022_arm64 (native ARM64 host), or
+    win64_msvc2022_arm64_cross_compiled (x64 host, ARM64 target).
 
 .PARAMETER CheckOnly
     Only verify the extension marker files exist; download nothing.
@@ -46,7 +47,7 @@ param(
 
     [string]$QtVersion = "6.12.0",
 
-    [ValidateSet("win64_msvc2022_64", "win64_msvc2022_arm64_cross_compiled")]
+    [ValidateSet("win64_msvc2022_64", "win64_msvc2022_arm64", "win64_msvc2022_arm64_cross_compiled")]
     [string]$QtArch = "win64_msvc2022_64",
 
     [switch]$CheckOnly,
@@ -68,13 +69,23 @@ if (-not $QtVersion.StartsWith("6.12")) {
 # Per-architecture repository location, package, archives, pinned SHA1.
 $ArchMap = @{
     "win64_msvc2022_64" = @{
+        Host       = "windows_x86"
         SubDir     = "msvc2022_64"
         Package    = "extensions.qtwebengine.6120.61400.win64_msvc2022_64"
         Main       = "qtwebengine-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z"
         MainSha1   = "a8f682478f00cb9106f45315d401bee114ff3adb"
         PluginSha1 = "cd0def84734640e4d4262bdd7689a105abd8194e"
     }
+    "win64_msvc2022_arm64" = @{
+        Host       = "windows_arm64"
+        SubDir     = "msvc2022_arm64"
+        Package    = "extensions.qtwebengine.6120.61400.win64_msvc2022_arm64"
+        Main       = "qtwebengine-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-ARM64.7z"
+        MainSha1   = "5cd8e4ff99516b97b5fc1cc32e3ac2d3180ec008"
+        PluginSha1 = "87b3fa49c230e7f16028daf55a0bc4291873038d"
+    }
     "win64_msvc2022_arm64_cross_compiled" = @{
+        Host       = "windows_x86"
         SubDir     = "msvc2022_arm64"
         Package    = "extensions.qtwebengine.6120.61400.win64_msvc2022_arm64_cross_compiled"
         Main       = "qtwebengine-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-ARM64.7z"
@@ -137,7 +148,7 @@ if ([string]::IsNullOrEmpty($DownloadDir)) {
 function Get-Archive {
     param([string]$Name, [string]$Sha1)
     $file = $ExtVersion + $Name
-    $url = "$BaseUrl/windows_x86/extensions/qtwebengine/6120/61400/$($Arch.SubDir)/$($Arch.Package)/$file"
+    $url = "$BaseUrl/$($Arch.Host)/extensions/qtwebengine/6120/61400/$($Arch.SubDir)/$($Arch.Package)/$file"
     $dest = Join-Path $workdir $file
     if (Test-Path -LiteralPath $dest -PathType Leaf) {
         $cached = (Get-FileHash -LiteralPath $dest -Algorithm SHA1).Hash.ToLowerInvariant()

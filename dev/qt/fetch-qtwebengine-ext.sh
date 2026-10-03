@@ -86,7 +86,7 @@ resolve_arch() {
 		MARKER_PROCESS="lib/QtWebEngineCore.framework/Versions/A/Helpers/QtWebEngineProcess.app/Contents/MacOS/QtWebEngineProcess"
 		MARKER_PLUGIN="plugins/webview/libqtwebview_webengine.dylib"
 		;;
-	win64_msvc2022_64|win64_msvc2022_arm64_cross_compiled)
+	win64_msvc2022_64|win64_msvc2022_arm64|win64_msvc2022_arm64_cross_compiled)
 		die "arch '${QT_ARCH}' is a Windows target; use dev/qt/fetch-qtwebengine-ext.ps1 instead"
 		;;
 	*)

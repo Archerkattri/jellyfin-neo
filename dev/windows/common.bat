@@ -47,6 +47,11 @@ if "%HOST_ARCH%"=="x86" if defined PROCESSOR_ARCHITEW6432 set "HOST_ARCH=%PROCES
 if /i "%HOST_ARCH%"=="ARM64" (
     if /i "%WINARCH%"=="arm64" (
         set "VCVARS_NAME=vcvarsarm64.bat"
+        REM Native ARM64 Qt exists (win64_msvc2022_arm64): build natively,
+        REM no host Qt or cross toolchain. x64 hosts keep the cross package.
+        set "QT_ARCH=win64_msvc2022_arm64"
+        set "QT_HOST_ARCH="
+        set "QT_HOST_DIR="
     ) else (
         set "VCVARS_NAME=vcvarsarm64_amd64.bat"
     )

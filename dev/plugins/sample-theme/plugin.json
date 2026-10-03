@@ -1,0 +1,12 @@
+{
+  "id": "org.jellyfin.sample-theme",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "name": "Sample Theme",
+  "description": "Tier-1 sample web plugin: tints the client with a badge to prove the Phase-1 host surface end to end.",
+  "author": "Jellyfin Desktop",
+  "license": "MIT",
+  "tier": "web",
+  "entry": "sample-theme",
+  "capabilities": []
+}

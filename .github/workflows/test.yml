@@ -17,7 +17,12 @@ jobs:
     - name: Install build dependencies from debian/control
       run: |
         sudo apt-get update
+        # NOTE: this job configures against distro Qt (no aqt SDK), so the Qt6
+        # dev packages come from apt here — debian/control intentionally omits
+        # Qt because the .deb builds against the aqt SDK in /opt/qt instead.
         sudo apt-get install --yes devscripts equivs ninja-build lcov \
+          qt6-base-dev qt6-declarative-dev qt6-webengine-dev qt6-webchannel-dev \
+          qt6-wayland-dev \
           qml6-module-qttest qml6-module-qtwebengine qml6-module-qtwebchannel \
           qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript
         sudo mk-build-deps -i -r -t "apt-get --yes" debian/control
@@ -29,6 +34,8 @@ jobs:
       run: cmake --build build
 
     - name: Run tests
+      env:
+        QT_QPA_PLATFORM: offscreen
       run: |
         cd build
         ctest --output-on-failure

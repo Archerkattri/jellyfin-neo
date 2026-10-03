@@ -1530,19 +1530,22 @@ test('Windows CI and developer scripts keep a usable ARM64 job', () => {
     const windowsWorkflow = readFileSync(new URL('../.github/workflows/build-windows.yml', import.meta.url), 'utf8');
     const windowsCommon = readFileSync(new URL('../dev/windows/common.bat', import.meta.url), 'utf8');
 
-    // Qt publishes no native win64_msvc2022_arm64 package; the job must use the
-    // cross-compiled arch on a native ARM64 runner (ARM64 Qt tools cannot run on x64).
+    // CI builds ARM64 natively on a windows-11-arm runner: Qt publishes a native
+    // win64_msvc2022_arm64 package, and windeployqt (itself ARM64) cannot run on x64.
     assert.match(windowsWorkflow, /artifact: windows-arm64/);
-    assert.match(windowsWorkflow, /qt_arch: win64_msvc2022_arm64_cross_compiled/);
+    assert.match(windowsWorkflow, /qt_arch: win64_msvc2022_arm64\r?\n/);
     assert.match(windowsWorkflow, /runs_on: windows-11-arm/);
     assert.match(windowsWorkflow, /runs-on: \$\{\{ matrix\.runs_on \}\}/);
     assert.match(windowsWorkflow, /vcvars: vcvarsarm64\.bat/);
     assert.match(windowsWorkflow, /mpv_arch: aarch64/);
-    assert.doesNotMatch(windowsWorkflow, /qt_arch: win64_msvc2022_arm64\r?\n/);
+    assert.doesNotMatch(windowsWorkflow, /cross_compiled/);
+    assert.doesNotMatch(windowsWorkflow, /QT_HOST_PATH/);
 
-    // Local scripts expose the same arch selection.
+    // Local scripts: x64 hosts cross-compile, ARM64 hosts build natively.
     assert.match(windowsCommon, /WINARCH/);
-    assert.match(windowsCommon, /win64_msvc2022_arm64_cross_compiled/);
+    assert.match(windowsCommon, /QT_ARCH=win64_msvc2022_arm64_cross_compiled/);
+    assert.match(windowsCommon, /HOST_ARCH.*ARM64/);
+    assert.match(windowsCommon, /QT_ARCH=win64_msvc2022_arm64"\r?\n/);
     assert.match(windowsCommon, /MPV_ARCH=aarch64/);
     assert.match(windowsCommon, /vcvarsarm64\.bat/);
 });
@@ -2225,9 +2228,544 @@ test('plugin0-cpp-skeleton-matches-design', () => {
     assert.match(cmake, /PluginManifest\.cpp/);
     assert.match(readFileSync(new URL('../src/CMakeLists.txt', import.meta.url), 'utf8'), /add_subdirectory\(plugins\)/);
 
-    // Phase 0 changes no loader behavior: the injected blob list is untouched.
+    // Phase 0 changed no loader behavior; Phase 1 (plugin1-loader-*) owns the
+    // loader invariant now, so the pluginManifest-absent assertion retired here.
     const system = readFileSync(new URL('../src/system/SystemComponent.cpp', import.meta.url), 'utf8');
     assert.match(system, /:\/web-client\/extension\/nativeshell\.js/);
-    assert.doesNotMatch(system, /[Pp]luginManifest/);
     assert.doesNotMatch(system, /plugin\.json/);
+});
+function loadPlugin1Validator() {
+    const context = {
+        window: {},
+        console: { log() {}, debug() {}, warn() {}, error() {} }
+    };
+    runInNewContext(readFileSync(new URL('../native/pluginManifest.js', import.meta.url), 'utf8'), context);
+    return context.window._validatePluginManifest;
+}
+
+function readPlugin1SystemSource() {
+    return readFileSync(new URL('../src/system/SystemComponent.cpp', import.meta.url), 'utf8');
+}
+
+function readPlugin1WebviewSource() {
+    return readFileSync(new URL('../src/ui/webview.qml', import.meta.url), 'utf8');
+}
+
+test('plugin1-loader-injects-validator-after-nativeshell', () => {
+    const source = readPlugin1SystemSource();
+    const nativeShell = source.indexOf('":/web-client/extension/nativeshell.js"');
+    const gate = source.indexOf('":/web-client/extension/pluginManifest.js"');
+    assert.ok(nativeShell !== -1, 'nativeshell stays in the injected blob');
+    assert.ok(gate !== -1, 'validator gate script is injected');
+    assert.ok(gate > nativeShell, 'validator loads after nativeshell, before appended plugin scripts');
+
+    const loop = source.indexOf('cachedScript += loadScript(scriptPath)');
+    const append = source.indexOf('cachedScript += loadTier1PluginScripts()');
+    assert.ok(loop !== -1 && append !== -1 && append > loop,
+        'enabled Tier-1 plugin scripts are appended after the base blob');
+});
+
+test('plugin1-loader-reads-scanner-list-and-web-tier-only', () => {
+    const source = readPlugin1SystemSource();
+    assert.match(source, /#include "plugins\/PluginComponent\.h"/);
+    assert.match(source, /PluginComponent::pluginsDir\(\)/);
+    assert.match(source, /PluginComponent::Get\(\)\.plugins\(\)/);
+    assert.match(source, /manifest\.tier != .*\"web\"/);
+    // Entry names a single file segment; the loader resolves "<entry>.js".
+    assert.match(source, /entryFile \+= .*\.js/);
+    assert.match(source, /endsWith.*\.js.*CaseInsensitive/);
+});
+
+test('plugin1-loader-enable-flag-defaults-disabled', () => {
+    const source = readPlugin1SystemSource();
+    // Per-plugin enable flags: section "plugins", keyed by plugin id.
+    assert.match(source, /getSection\(\"plugins\"\)/);
+    assert.match(source, /pluginSettings\.value\(manifest\.id\)\.toBool\(\)/);
+    // Missing section disables without crashing (no throw, no fatal log).
+    // (Owner alignment: the pointer is kept alive past registration, so the
+    // declaration moved out of the if-init; null tolerance is unchanged.)
+    assert.match(source, /SettingsSection\* section = SettingsComponent::Get\(\)\.getSection\(\"plugins\"\)/);
+    assert.match(source, /if \(section\)/);
+});
+
+test('plugin1-loader-skips-with-log-and-never-fails-startup', () => {
+    const source = readPlugin1SystemSource();
+    assert.match(source, /is disabled; skipping/);
+    assert.match(source, /is missing or unreadable; skipping/);
+    assert.match(source, /No active profile on early CLI paths/);
+    assert.match(source, /No plugins installed; not an error/);
+    // Unsafe ids can never escape the plugins dir.
+    assert.match(source, /unsafe id; skipping/);
+    // No Phase-2+ scope in the loader lane.
+    assert.doesNotMatch(source, /QPluginLoader/);
+    assert.doesNotMatch(source, /webChannelObject/);
+    // No namespaced plugin:<id>:<verb> host commands (a Phase-2 API).
+    assert.doesNotMatch(source, /plugin:[A-Za-z0-9_.-]+:/);
+    assert.doesNotMatch(source, /sha256/i);
+    assert.doesNotMatch(source, /signature/i);
+});
+
+test('plugin1-gate-reuses-validator', () => {
+    const source = readPlugin1SystemSource();
+    // The C++ wrapper gates on the shared validator (fail-closed, no reimplementation).
+    assert.match(source, /window\._validatePluginManifest/);
+    assert.match(source, /typeof window\._validatePluginManifest/);
+    assert.match(source, /!gate \|\| !gate\.ok/);
+    // The gate receives the validated manifest fields, not raw file bytes.
+    for (const field of ['"id"', '"version"', '"apiVersion"', '"tier"', '"entry"', '"capabilities"']) {
+        assert.match(source, new RegExp(`gateManifest\\.insert\\(${field}`), `gate embeds ${field}`);
+    }
+
+    // Behavioral half: the embedded manifest shape round-trips through the
+    // real validator exactly as the client-side gate will call it.
+    const validate = loadPlugin1Validator();
+    const embedded = { id: 'theme-dark', version: '0.1.0', apiVersion: 1, tier: 'web', entry: 'theme-dark', capabilities: [] };
+    assert.equal(validate(JSON.parse(JSON.stringify(embedded))).ok, true);
+    assert.equal(validate({ ...embedded, version: 'bogus' }).ok, false);
+    assert.equal(validate({ ...embedded, entry: '../evil' }).ok, false);
+    assert.equal(validate({ ...embedded, capabilities: ['runUserScript'] }).ok, false);
+    assert.equal(typeof validate, 'function');
+});
+
+test('plugin1-loader-leaves-qml-and-header-untouched', () => {
+    // Single-file loader: new QML-callable API would need a header change,
+    // which is outside this lane, so the blob stays the injection point.
+    const qml = readPlugin1WebviewSource();
+    assert.match(qml, /web\.profile\.userScripts\.collection = \[ nativeshell \]/);
+    assert.doesNotMatch(qml, /plugin/i);
+    const header = readFileSync(new URL('../src/system/SystemComponent.h', import.meta.url), 'utf8');
+    assert.doesNotMatch(header, /plugin/i);
+    assert.doesNotMatch(header, /Tier1/);
+});
+
+function loadPlugin1Host(options = {}) {
+    const { withValidator = true, version = '2.1.0', api = null, preseedHost = null } = options;
+    const jmpInfo = {
+        settings: { main: { enableMPV: true, fullscreen: false }, video: {}, audio: {} },
+        settingsUpdate: []
+    };
+    if (version !== null) {
+        jmpInfo.version = version;
+    }
+    const window = {
+        sessionStorage: {
+            getItem: () => null,
+            setItem() {}
+        },
+        jmpInfo
+    };
+    if (api) {
+        window.api = api;
+    }
+    if (preseedHost) {
+        window.JellyfinDesktop = preseedHost;
+    }
+    const context = {
+        window,
+        jmpInfo,
+        document: { addEventListener() {} },
+        console: { log() {}, debug() {}, warn() {}, error() {} }
+    };
+    if (withValidator) {
+        runInNewContext(readFileSync(new URL('../native/pluginManifest.js', import.meta.url), 'utf8'), context);
+    }
+    runInNewContext(readFileSync(new URL('../native/nativeshell.js', import.meta.url), 'utf8'), context);
+    return { host: window.JellyfinDesktop, window, jmpInfo, context };
+}
+
+test('plugin1-host-object-exists-once', () => {
+    const { host } = loadPlugin1Host();
+    assert.equal(typeof host, 'object');
+    assert.equal(host.apiVersion, 1);
+    assert.equal(host.appVersion, '2.1.0');
+    assert.deepEqual(
+        Object.keys(host).sort(),
+        ['_registerPlugin', 'apiVersion', 'appVersion', 'events', 'host', 'plugin', 'pluginId', 'settings']
+    );
+    // Guard: a pre-existing host object is never replaced by a second eval.
+    const sentinel = { sentinel: true };
+    const reseeded = loadPlugin1Host({ preseedHost: sentinel });
+    assert.equal(reseeded.window.JellyfinDesktop, sentinel);
+    assert.equal(reseeded.host, sentinel);
+});
+
+test('plugin1-host-inert-without-plugins', () => {
+    const { host } = loadPlugin1Host({ withValidator: false });
+    assert.equal(host.pluginId, null);
+    assert.equal(host.plugin.id, null);
+    assert.equal(host.plugin.version, null);
+    assert.equal(host.plugin.dataDir, null);
+    assert.equal(host.events.on('player', 'stateChanged', () => {}), false);
+    assert.equal(host.events.off('player', 'stateChanged', () => {}), false);
+    assert.equal(host.settings.get('main', 'fullscreen'), false);
+    assert.equal(host.settings.get('nope', 'missing'), undefined);
+    assert.equal(typeof host.settings.onChange(() => {}), 'function');
+    assert.equal(host.host.openExternalUrl('https://example.com'), false);
+    assert.equal(host.host.log('hello'), true);
+    const gated = host._registerPlugin({ id: 'x', version: '1.0.0', apiVersion: 1, tier: 'web', entry: 'x' });
+    assert.equal(gated.ok, false);
+    assert.equal(gated.error, 'manifest validator unavailable');
+});
+
+test('plugin1-host-events-wrap-api-signals', () => {
+    const listeners = new Set();
+    const api = {
+        player: {
+            stateChanged: {
+                connect(fn) { listeners.add(fn); },
+                disconnect(fn) { listeners.delete(fn); }
+            }
+        }
+    };
+    const { host } = loadPlugin1Host({ api });
+    const seen = [];
+    const cb = (...args) => { seen.push([...args]); };
+    assert.equal(host.events.on('player', 'stateChanged', cb), true);
+    assert.equal(listeners.size, 1);
+    assert.equal(host.events.on('player', 'stateChanged', cb), true);
+    assert.equal(listeners.size, 1);
+    for (const fn of listeners) {
+        fn('playing');
+    }
+    assert.deepEqual(seen, [['playing']]);
+    // Throwing plugin callbacks are swallowed; the shell survives.
+    const boom = () => { throw new Error('boom'); };
+    assert.equal(host.events.on('player', 'stateChanged', boom), true);
+    for (const fn of [...listeners]) {
+        fn('x');
+    }
+    assert.equal(host.events.off('player', 'stateChanged', cb), true);
+    assert.equal(listeners.size, 1);
+    assert.equal(host.events.off('player', 'stateChanged', cb), false);
+    // Invalid shapes never throw.
+    assert.equal(host.events.on('player', 'missing-signal', cb), false);
+    assert.equal(host.events.on('missing-object', 'stateChanged', cb), false);
+    assert.equal(host.events.on('player', 'stateChanged', 'not-a-function'), false);
+    assert.equal(host.events.on(null, null, null), false);
+    // A throwing connect degrades to false.
+    const broken = loadPlugin1Host({
+        api: { player: { stateChanged: { connect() { throw new Error('dead'); }, disconnect() {} } } }
+    });
+    assert.equal(broken.host.events.on('player', 'stateChanged', () => {}), false);
+});
+
+test('plugin1-host-settings-read-and-subscribe', () => {
+    const { host, jmpInfo } = loadPlugin1Host();
+    assert.equal(host.settings.get('main', 'fullscreen'), false);
+    assert.equal(host.settings.get('main', 'nope'), undefined);
+    assert.equal(host.settings.get('nope', 'nope'), undefined);
+    assert.equal(host.settings.get(null, 'x'), undefined);
+    assert.deepEqual(Object.keys(host.settings).sort(), ['get', 'onChange']);
+    const seen = [];
+    const off = host.settings.onChange((section, data) => { seen.push([section, data]); });
+    assert.equal(typeof off, 'function');
+    for (const fn of [...jmpInfo.settingsUpdate]) {
+        fn('main', { fullscreen: true });
+    }
+    assert.deepEqual(seen, [['main', { fullscreen: true }]]);
+    off();
+    for (const fn of [...jmpInfo.settingsUpdate]) {
+        fn('main', { fullscreen: false });
+    }
+    assert.equal(seen.length, 1);
+    assert.equal(typeof host.settings.onChange('nope'), 'function');
+});
+
+test('plugin1-host-allowlist-only', () => {
+    const opened = [];
+    const { host } = loadPlugin1Host({ api: { system: { openExternalUrl(url) { opened.push(url); } } } });
+    assert.deepEqual(Object.keys(host.host).sort(), ['jsLog', 'log', 'openExternalUrl']);
+    assert.equal(host.host.exit, undefined);
+    assert.equal(host.host.runUserScript, undefined);
+    assert.equal(host.host.log, host.host.jsLog);
+    assert.equal(host.host.openExternalUrl('https://example.com/x'), true);
+    assert.deepEqual(opened, ['https://example.com/x']);
+    assert.equal(host.host.openExternalUrl(''), false);
+    assert.equal(host.host.openExternalUrl(42), false);
+    assert.equal(opened.length, 1);
+    const throwing = loadPlugin1Host({ api: { system: { openExternalUrl() { throw new Error('ipc down'); } } } });
+    assert.equal(throwing.host.host.openExternalUrl('https://example.com'), false);
+});
+
+test('plugin1-host-register-gates-on-manifest', () => {
+    const { host } = loadPlugin1Host();
+    const good = { id: 'org.example.theme', version: '1.2.0', apiVersion: 1, tier: 'web', entry: 'theme' };
+    const accepted = host._registerPlugin(good);
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.id, 'org.example.theme');
+    assert.equal(accepted.version, '1.2.0');
+    assert.equal(host.pluginId, 'org.example.theme');
+    assert.equal(host.plugin.id, 'org.example.theme');
+    assert.equal(host.plugin.version, '1.2.0');
+    for (const bad of [
+        { ...good, id: 'bad id!' },
+        { ...good, entry: '../evil' },
+        { ...good, apiVersion: 999 },
+        { version: '1.0.0', apiVersion: 1, tier: 'web', entry: 'x' },
+        null,
+        'nope',
+        []
+    ]) {
+        const result = host._registerPlugin(bad);
+        assert.equal(result.ok, false);
+        assert.equal(typeof result.error, 'string');
+    }
+    // Fail-closed: rejected manifests leave the previous context untouched.
+    assert.equal(host.pluginId, 'org.example.theme');
+});
+
+test('plugin1-host-never-throws-during-init', () => {
+    const { host } = loadPlugin1Host({ version: null, withValidator: false });
+    assert.equal(host.appVersion, '');
+    assert.equal(host.apiVersion, 1);
+    assert.equal(host.pluginId, null);
+});
+
+test('plugin1-source-shape-phase1-only', () => {
+    const shell = readFileSync(new URL('../native/nativeshell.js', import.meta.url), 'utf8');
+    assert.match(shell, /typeof window\.JellyfinDesktop === 'undefined'/);
+    assert.equal(shell.match(/window\.JellyfinDesktop = /g).length, 1);
+    // Reuses the Phase-0 gate instead of reimplementing validation.
+    assert.match(shell, /window\._validatePluginManifest/);
+    assert.doesNotMatch(shell, /ENTRY_PATTERN/);
+    assert.doesNotMatch(shell, /SUPPORTED_API_VERSION/);
+    // No Phase-2 surface in the host lane.
+    assert.doesNotMatch(shell, /registerHostCommand/);
+    assert.doesNotMatch(shell, /QPluginLoader/);
+    assert.doesNotMatch(shell, /webChannelObject/);
+    assert.doesNotMatch(shell, /companionScript/);
+    assert.doesNotMatch(shell, /local-sockets/);
+    assert.doesNotMatch(shell, /process-spawn/);
+});
+// Phase 1 settings lane: plugins section + enable toggles (static description only).
+function loadPlugin1Settings() {
+    return JSON.parse(readFileSync(new URL('../resources/settings/settings_description.json', import.meta.url), 'utf8'));
+}
+
+test('plugin1-settings-section-shape', () => {
+    const sections = loadPlugin1Settings();
+
+    // No __meta__ version bump: a bump would reset user configs.
+    assert.equal(sections.find(section => section.section === '__meta__')?.version, 7);
+
+    const plugins = sections.find(section => section.section === 'plugins');
+    assert.ok(plugins, 'plugins section exists');
+    assert.equal(plugins.order, 5);
+    assert.equal(plugins.hidden, undefined);
+
+    // SettingsComponent::parseSection skips entries missing value/default.
+    for (const entry of plugins.values) {
+        assert.equal(typeof entry.value, 'string');
+        assert.ok('default' in entry, `${entry.value} has a default`);
+    }
+
+    // Modal order must stay unambiguous (nativeshell sorts by order).
+    const orders = sections.filter(section => typeof section.order === 'number').map(section => section.order);
+    assert.equal(new Set(orders).size, orders.length);
+});
+
+test('plugin1-settings-master-toggle-default-off', () => {
+    const sections = loadPlugin1Settings();
+    const plugins = sections.find(section => section.section === 'plugins');
+    const master = plugins.values.find(entry => entry.value === 'enabled');
+    assert.ok(master, 'master enabled toggle exists');
+    // Fail-closed per the design: nothing plugin-related runs until enabled.
+    assert.equal(master.default, false);
+    // Labeled control: nativeshell falls back to the raw key without these.
+    assert.equal(typeof master.display_name, 'string');
+    assert.equal(typeof master.help, 'string');
+});
+
+test('plugin1-settings-modal-order', () => {
+    const sections = loadPlugin1Settings();
+    // Mirror nativeshell.js: visible sections sorted by order.
+    const visible = sections
+        .filter(section => !section.hidden && typeof section.order === 'number')
+        .sort((a, b) => a.order - b.order)
+        .map(section => section.section);
+    assert.deepEqual(visible, ['main', 'audio', 'video', 'subtitles', 'plugins', 'other']);
+});
+
+test('plugin1-settings-dynamic-keys-supported', () => {
+    // Per-plugin "<id>.enabled" keys are user data: they cannot be enumerated
+    // statically, so the C++ loader lane creates them at runtime. These
+    // source-shape assertions pin the runtime contract this relies on.
+    const section = readFileSync(new URL('../src/settings/SettingsSection.cpp', import.meta.url), 'utf8');
+    assert.match(section, /m_values\[key\] = new SettingsValue\(key, QVariant\(\), PLATFORM_ANY/);
+
+    const component = readFileSync(new URL('../src/settings/SettingsComponent.cpp', import.meta.url), 'utf8');
+    assert.match(component, /Section.*is unknown/);
+
+    // Dynamic values default to hidden, so modal toggles need an explicit
+    // registerSetting() with display name by the loader lane (not this lane).
+    const valueHeader = readFileSync(new URL('../src/settings/SettingsValue.h', import.meta.url), 'utf8');
+    assert.match(valueHeader, /m_hidden\(true\)/);
+});
+
+test('plugin1-settings-renders-without-nativeshell-change', () => {
+    // Data-driven rendering: booleans become checkboxes, sections iterate in
+    // order. No nativeshell.js edit needed for this section (sibling owns it).
+    const nativeshell = readFileSync(new URL('../native/nativeshell.js', import.meta.url), 'utf8');
+    assert.match(nativeshell, /jmpInfo\.sections\.sort\(\(a, b\) => a\.order - b\.order\)/);
+    assert.match(nativeshell, /isBoolean \? "checkbox"/);
+});
+function runSampleThemePlugin1({ jellyfinDesktop, withDocument = true } = {}) {
+    const created = [];
+    const body = { children: [], appendChild(el) { this.children.push(el); } };
+    const document = withDocument ? {
+        createElement() {
+            const el = {
+                style: {},
+                attributes: {},
+                setAttribute(key, value) { el.attributes[key] = value; },
+                getAttribute(key) { return el.attributes[key]; }
+            };
+            created.push(el);
+            return el;
+        },
+        getElementById(id) { return body.children.find(el => el.id === id) ?? null; },
+        body,
+        documentElement: body
+    } : undefined;
+    const window = {};
+    if (jellyfinDesktop !== undefined) {
+        window.JellyfinDesktop = jellyfinDesktop;
+    }
+    const context = { window, console: { log() {}, debug() {}, warn() {}, error() {} } };
+    if (withDocument) {
+        context.document = document;
+    }
+    runInNewContext(readFileSync(new URL('../dev/plugins/sample-theme/sample-theme.js', import.meta.url), 'utf8'), context);
+    return { window, document, created, body, badge: withDocument ? (body.children[0] ?? null) : null };
+}
+
+test('plugin1-sample-manifest-valid', () => {
+    const validate = loadPlugin0Manifest();
+    const manifest = JSON.parse(readFileSync(new URL('../dev/plugins/sample-theme/plugin.json', import.meta.url), 'utf8'));
+    const result = validate(manifest);
+    assert.equal(result.ok, true);
+    assert.equal(result.manifest.id, 'org.jellyfin.sample-theme');
+    assert.equal(result.manifest.tier, 'web');
+    assert.equal(result.manifest.apiVersion, 1);
+    assert.equal(result.manifest.entry, 'sample-theme');
+    assert.deepEqual(JSON.parse(JSON.stringify(result.manifest.capabilities)), []);
+    // The manifest entry resolves to a script shipped next to the manifest.
+    const script = readFileSync(new URL(`../dev/plugins/sample-theme/${result.manifest.entry}.js`, import.meta.url), 'utf8');
+    assert.match(script, /JellyfinDesktop/);
+    const readme = readFileSync(new URL('../dev/plugins/sample-theme/README.md', import.meta.url), 'utf8');
+    assert.match(readme, /<profile>\/plugins\//);
+});
+
+test('plugin1-sample-script-noops-without-host', () => {
+    // No JellyfinDesktop (older build): must not throw, must not touch the DOM.
+    const absent = runSampleThemePlugin1({});
+    assert.equal(absent.created.length, 0);
+    assert.equal(absent.body.children.length, 0);
+    // Host present but not an object: same clean no-op.
+    const malformed = runSampleThemePlugin1({ jellyfinDesktop: 'nope' });
+    assert.equal(malformed.created.length, 0);
+    assert.equal(malformed.body.children.length, 0);
+    // No host and no document at all: still must not throw.
+    runSampleThemePlugin1({ withDocument: false });
+});
+
+test('plugin1-sample-script-uses-phase1-surface-only', () => {
+    const source = readFileSync(new URL('../dev/plugins/sample-theme/sample-theme.js', import.meta.url), 'utf8');
+    assert.match(source, /window\.JellyfinDesktop/);
+    assert.doesNotMatch(source, /window\.api\b/);
+    assert.doesNotMatch(source, /qwebchannel/i);
+    assert.doesNotMatch(source, /webChannelObject/);
+    assert.doesNotMatch(source, /QPluginLoader/);
+    assert.doesNotMatch(source, /registerHostCommand/);
+    assert.doesNotMatch(source, /runUserScript/);
+
+    const logs = [];
+    const subscriptions = [];
+    const { badge } = runSampleThemePlugin1({
+        jellyfinDesktop: {
+            apiVersion: 1,
+            plugin: { id: 'org.jellyfin.sample-theme', version: '1.0.0' },
+            events: { on(object, signal, cb) { subscriptions.push([object, signal, cb]); } },
+            host: { log(message) { logs.push(message); } }
+        }
+    });
+    assert.ok(badge);
+    assert.equal(badge.id, 'jellyfin-sample-theme-badge');
+    assert.equal(badge.attributes['data-plugin'], 'org.jellyfin.sample-theme');
+    assert.match(badge.textContent, /Sample Theme/);
+    assert.deepEqual(subscriptions.map(([object, signal]) => [object, signal]), [['player', 'playbackStateChanged']]);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /sample-theme/);
+    // Event delivery updates the badge, proving the events leg end to end.
+    subscriptions[0][2]('playing');
+    assert.equal(badge.attributes['data-playback-state'], 'playing');
+});
+
+test('plugin1-x-master-toggle-gates-loader', () => {
+    const source = readFileSync(new URL('../src/system/SystemComponent.cpp', import.meta.url), 'utf8');
+    // Master toggle gates everything: missing/false `enabled` returns the empty blob.
+    assert.match(source, /value\(QStringLiteral\("enabled"\)\)\.toBool\(\)/);
+    assert.match(source, /plugins\.enabled is off/);
+    assert.match(source, /skipping Tier-1 script load/);
+});
+
+test('plugin1-x-toggle-registration', () => {
+    const loader = readFileSync(new URL('../src/system/SystemComponent.cpp', import.meta.url), 'utf8');
+    const header = readFileSync(new URL('../src/settings/SettingsSection.h', import.meta.url), 'utf8');
+    // Persisted flags are reused via findValue, never double-registered
+    // (registerSetting refuses duplicates), and surfaced visible in the modal.
+    assert.match(header, /findValue\(const QString& key\)/);
+    assert.match(loader, /findValue\(manifest\.id\)/);
+    assert.match(loader, /registerSetting\(toggle\)/);
+    assert.match(loader, /setHidden\(false\)/);
+    assert.ok(loader.indexOf('registerSetting(toggle)') < loader.indexOf('plugins.enabled is off'));
+});
+
+test('plugin1-x-sample-runs-on-real-host', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../dev/plugins/sample-theme/plugin.json', import.meta.url), 'utf8'));
+    const body = { children: [], appendChild(el) { this.children.push(el); } };
+    const document = {
+        createElement() {
+            const el = {
+                style: {},
+                attributes: {},
+                setAttribute(key, value) { el.attributes[key] = value; },
+                getAttribute(key) { return el.attributes[key]; }
+            };
+            return el;
+        },
+        getElementById(id) { return body.children.find(el => el.id === id) ?? null; },
+        body,
+        documentElement: body,
+        addEventListener() {}
+    };
+    const logs = [];
+    const connected = [];
+    const window = {
+        sessionStorage: { getItem: () => null, setItem() {} },
+        jmpInfo: { version: '2.1.0', settings: { main: { enableMPV: true, fullscreen: false } }, settingsUpdate: [] },
+        api: {
+            player: { playbackStateChanged: { connect(cb) { connected.push(cb); } } },
+            system: { openExternalUrl() { return true; } }
+        }
+    };
+    const context = {
+        window,
+        jmpInfo: window.jmpInfo,
+        document,
+        console: { log(line) { logs.push(String(line)); }, debug() {}, warn() {}, error() {} }
+    };
+    runInNewContext(readFileSync(new URL('../native/pluginManifest.js', import.meta.url), 'utf8'), context);
+    runInNewContext(readFileSync(new URL('../native/nativeshell.js', import.meta.url), 'utf8'), context);
+    const host = window.JellyfinDesktop;
+    assert.equal(host._registerPlugin(manifest).ok, true);
+    runInNewContext(readFileSync(new URL('../dev/plugins/sample-theme/sample-theme.js', import.meta.url), 'utf8'), context);
+    const badge = body.children[0] ?? null;
+    assert.ok(badge);
+    assert.equal(badge.id, 'jellyfin-sample-theme-badge');
+    assert.equal(badge.attributes['data-plugin'], manifest.id);
+    assert.equal(connected.length, 1);
+    connected[0]('playing');
+    assert.equal(badge.attributes['data-playback-state'], 'playing');
+    assert.ok(logs.some(line => line.includes('[plugin:' + manifest.id + ']')));
 });
