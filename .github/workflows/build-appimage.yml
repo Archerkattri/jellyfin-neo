@@ -41,7 +41,7 @@ jobs:
     - name: Smoke-test AppImage startup
       run: |
         sudo apt-get update -qq
-        sudo apt-get install -y -qq libgl1 libegl1
+        sudo apt-get install -y -qq libgl1 libegl1 libopengl0
         output/JellyfinDesktop-x86_64.AppImage --appimage-extract-and-run --version
     - name: Archive production artifacts
       uses: actions/upload-artifact@v7
