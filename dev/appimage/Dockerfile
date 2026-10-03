@@ -5,8 +5,11 @@ FROM archlinux:latest
 # 6.11.2-1); the checks below intentionally fail if that changes.
 ARG ARCH_SNAPSHOT=2026/08/29
 
-RUN printf '[core]\nServer=https://archive.archlinux.org/repos/%s/$repo/os/$arch\n\n[extra]\nServer=https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' \
-    "$ARCH_SNAPSHOT" "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist
+# NOTE: mirrorlist carries ONLY Server lines ($repo expands per section from
+# pacman.conf's own [core]/[extra] stanzas). Section headers here break pacman
+# 7 ("database already registered").
+RUN printf 'Server=https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' \
+    "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist
 
 # Install build + runtime dependencies (aligned with the AUR PKGBUILD)
 RUN pacman -Syyuu --noconfirm && \
