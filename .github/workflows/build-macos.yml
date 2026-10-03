@@ -56,10 +56,43 @@ jobs:
       run: |
         python3 -m pip install --disable-pip-version-check py7zr
         bash dev/qt/fetch-qtwebengine-ext.sh --qt-root "$QT_ROOT_DIR" --qt-version "${{ env.QT_VERSION }}" --python python3
-    - name: Install dependencies
+    - name: Resolve Homebrew cache key
+      id: brew-cache-key
       run: |
         brew update
-        brew install mpv
+        echo "cellar=$(brew --cellar)" >> "$GITHUB_OUTPUT"
+        echo "dlcache=$(brew --cache)" >> "$GITHUB_OUTPUT"
+        mpv_rev="$(brew info --json=v2 --formula mpv | jq -r '.formulae[0] | "\(.versions.stable)_r\(.revision)"')"
+        echo "mpv=$mpv_rev" >> "$GITHUB_OUTPUT"
+    - name: Restore Homebrew mpv cache
+      id: brew-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ${{ steps.brew-cache-key.outputs.cellar }}
+          ${{ steps.brew-cache-key.outputs.dlcache }}
+        key: brew-mpv-${{ runner.os }}-${{ matrix.architecture }}-${{ steps.brew-cache-key.outputs.mpv }}
+        restore-keys: |
+          brew-mpv-${{ runner.os }}-${{ matrix.architecture }}-
+    - name: Install dependencies
+      run: |
+        # No-op when the cache already holds this mpv revision.
+        brew install mpv || true
+        # Restored kegs lose their prefix symlinks; relink everything
+        # so pkg-config and the linker see the cached install.
+        brew list --formula | while read -r f; do
+          brew link --overwrite "$f" >/dev/null 2>&1 || true
+        done
+        brew list mpv >/dev/null
+        pkg-config --modversion mpv
+    - name: Save Homebrew mpv cache
+      if: steps.brew-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ${{ steps.brew-cache-key.outputs.cellar }}
+          ${{ steps.brew-cache-key.outputs.dlcache }}
+        key: brew-mpv-${{ runner.os }}-${{ matrix.architecture }}-${{ steps.brew-cache-key.outputs.mpv }}
     - name: Release build and native tests
       run: |
         set -o pipefail
