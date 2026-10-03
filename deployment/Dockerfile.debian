@@ -1,0 +1,69 @@
+ARG IMG=debian
+ARG TAG=bookworm
+FROM $IMG:$TAG
+
+ARG QT_VERSION=6.11.3
+ARG AQT_REVISION=8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+ENV QTROOT=/opt/qt/${QT_VERSION}/gcc_64
+
+# Docker build arguments
+ARG SOURCE_DIR=/jellyfin
+ARG ARTIFACT_DIR=/dist
+
+# Docker run environment
+ENV SOURCE_DIR=/jellyfin
+ENV ARTIFACT_DIR=/dist
+ENV DEB_BUILD_OPTIONS=noddebs
+ENV IS_DOCKER=YES
+
+# Prepare Debian build environment
+# Qt 6.12 note: WebEngine 6.140 ships only as an online-repo extension
+# (package 6.12.0-0-202609281005) that the pinned aqt cannot fetch, so 6.12
+# images install the base SDK without qtwebengine and complete it with the
+# pinned extension archives below. dev/qt/fetch-qtwebengine-ext.sh is the
+# canonical copy of these URLs/SHA1s; keep this block in sync with it.
+# The 6.11.x path is unchanged.
+RUN apt-get update \
+ && DEBIAN_FRONTEND="noninteractive" TZ="America/New_York" \
+    apt-get install --no-install-recommends -y \
+    debhelper mmv git curl devscripts equivs python3-venv python3-pip \
+ && python3 -m venv /opt/aqt-venv \
+ && /opt/aqt-venv/bin/python -m pip install --disable-pip-version-check \
+      "git+https://github.com/miurahr/aqtinstall.git@${AQT_REVISION}" \
+ && QT_MODULES="qtwebengine qtwebchannel qtpositioning qtserialport qtwayland" \
+ && case "${QT_VERSION}" in 6.12*) QT_MODULES="qtwebchannel qtpositioning qtserialport qtwayland" ;; esac \
+ && /opt/aqt-venv/bin/python -m aqt install-qt linux desktop "${QT_VERSION}" linux_gcc_64 \
+      --outputdir /opt/qt -m ${QT_MODULES} \
+ && test -f "${QTROOT}/lib/cmake/Qt6/Qt6Config.cmake" \
+ && test -f "${QTROOT}/lib/libQt6SerialPort.so.${QT_VERSION}" \
+ && grep -Fq "set(PACKAGE_VERSION \"${QT_VERSION}\")" \
+      "${QTROOT}/lib/cmake/Qt6/Qt6ConfigVersion.cmake" \
+ && case "${QT_VERSION}" in 6.12*) \
+      EXT_VERSION="6.12.0-0-202609281005"; \
+      EXT_PKG="extensions.qtwebengine.6120.61400.linux_gcc_64"; \
+      EXT_BASE="https://download.qt.io/online/qtsdkrepository/linux_x64/extensions/qtwebengine/6120/61400/x86_64/${EXT_PKG}"; \
+      EXT_TMP="$(mktemp -d)"; \
+      curl --fail --location --retry 3 \
+        -o "${EXT_TMP}/${EXT_VERSION}qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z" \
+        "${EXT_BASE}/${EXT_VERSION}qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z" \
+      && curl --fail --location --retry 3 \
+        -o "${EXT_TMP}/${EXT_VERSION}qtwebview_qtwebengine_plugin.7z" \
+        "${EXT_BASE}/${EXT_VERSION}qtwebview_qtwebengine_plugin.7z" \
+      && echo "df1668503cc0981087b2b003fea4a1df1ad15ae3  ${EXT_TMP}/${EXT_VERSION}qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z" | sha1sum -c - \
+      && echo "7f64447d8d9d9f4ca95cacabb0e7287be56395de  ${EXT_TMP}/${EXT_VERSION}qtwebview_qtwebengine_plugin.7z" | sha1sum -c - \
+      && /opt/aqt-venv/bin/python -m py7zr x "${EXT_TMP}/${EXT_VERSION}qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z" "${QTROOT}" \
+      && /opt/aqt-venv/bin/python -m py7zr x "${EXT_TMP}/${EXT_VERSION}qtwebview_qtwebengine_plugin.7z" "${QTROOT}" \
+      && test -f "${QTROOT}/lib/libQt6WebEngineCore.so.6.140.0" \
+      && test -x "${QTROOT}/libexec/QtWebEngineProcess" \
+      && rm -rf "${EXT_TMP}" ;; \
+    esac \
+ && rm -rf /var/lib/apt/lists/*
+
+# Link to build script
+RUN ln -sf ${SOURCE_DIR}/deployment/build.debian /build.sh
+
+VOLUME ${SOURCE_DIR}
+
+VOLUME ${ARTIFACT_DIR}
+
+ENTRYPOINT ["/build.sh"]

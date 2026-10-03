@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Jellyfin Desktop</title>
+    <link rel="stylesheet" href="find-webclient.css">
+</head>
+<body>
+    <main id="container">
+        <section class="connect-shell" aria-labelledby="title">
+            <aside class="brand-panel" aria-label="Jellyfin Desktop">
+                <div class="brand-lockup">
+                    <img class="logo" src="logo.png" alt="">
+                    <span class="edition">DESKTOP</span>
+                </div>
+                <div class="reel-art" aria-hidden="true">
+                    <span class="reel-core"></span>
+                    <span class="reel-signal"></span>
+                </div>
+                <div class="brand-footer">
+                    <span class="brand-rule"></span>
+                    <span>JELLYFIN DESKTOP</span>
+                </div>
+            </aside>
+
+            <section class="connect-panel">
+                <div class="panel-heading">
+                    <span class="section-mark" aria-hidden="true"></span>
+                    <p class="eyebrow">MEDIA SERVER</p>
+                </div>
+                <h1 id="title"></h1>
+
+                <form id="connect-form" novalidate>
+                    <label id="address-label" for="address"></label>
+                    <div class="address-wrap">
+                        <span class="address-glyph" aria-hidden="true">↗</span>
+                        <input
+                            type="text"
+                            id="address"
+                            name="server-address"
+                            inputmode="url"
+                            autocomplete="url"
+                            autocapitalize="none"
+                            spellcheck="false"
+                            aria-describedby="address-help connection-status"
+                            autofocus>
+                    </div>
+                    <p class="field-help" id="address-help"></p>
+
+                    <div id="connection-status" class="connection-status" role="status" aria-live="polite" hidden></div>
+                    <div id="spinner" class="spinner" aria-hidden="true" hidden></div>
+                    <button id="connect-button" type="submit"></button>
+                </form>
+            </section>
+        </section>
+    </main>
+    <script src="find-webclient.lang.js"></script>
+    <script src="find-webclient.js"></script>
+</body>
+</html>

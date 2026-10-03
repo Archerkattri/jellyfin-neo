@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+qt_root=/usr/lib/jellyfin-desktop
+export LD_LIBRARY_PATH="${qt_root}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export QT_PLUGIN_PATH="${qt_root}/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${qt_root}/plugins/platforms"
+export QML_IMPORT_PATH="${qt_root}/qml"
+export QML2_IMPORT_PATH="${qt_root}/qml"
+export QTWEBENGINEPROCESS_PATH="${qt_root}/libexec/QtWebEngineProcess"
+export QTWEBENGINE_RESOURCES_PATH="${qt_root}/resources"
+export QTWEBENGINE_LOCALES_PATH="${qt_root}/translations/qtwebengine_locales"
+
+exec "${qt_root}/bin/jellyfin-desktop" "$@"

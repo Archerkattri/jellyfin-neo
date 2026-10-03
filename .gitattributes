@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.bat text eol=crlf
+debian/source/format text eol=lf
+debian/rules text eol=lf
+debian/changelog text eol=lf
+debian/control text eol=lf

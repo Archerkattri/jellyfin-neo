@@ -1,0 +1,39 @@
+!/.github/
+!/.github/**
+*.pro.user*
+dependencies/*
+/build/*
+deps/*
+dev/*/deps/
+.idea
+.cache/
+.qtcreator/
+CMakePresets.json
+*.pyc
+.DS_Store
+.*libreelec*
+debian/*.debhelper.log
+debian/.debhelper/
+debian/jellyfin-desktop/
+debian/files
+debian/jellyfin-desktop.substvars
+debian/debhelper-build-stamp
+deployment/dist
+# --- wave9 hygiene: broad-add safety net (public repo) ---
+# Any dir named build/ at any depth (was: only root-level children).
+build/
+# Installer/tool logs (root aqtinstall.log is currently unignored).
+*.log
+# SDK archives (e.g. dev/windows/deps/*.7z).
+*.7z
+# Python virtualenvs.
+.venv/
+venv/
+# JS tooling.
+node_modules/
+# Python bytecode caches (companion to *.pyc above).
+__pycache__/
+# Agent scratch: owner should DELETE these dirs; ignored as a safety net
+# so a broad `git add -A` can never sweep them in.
+reports/
+research_notes/
