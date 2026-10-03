@@ -2769,3 +2769,16 @@ test('plugin1-x-sample-runs-on-real-host', () => {
     assert.equal(badge.attributes['data-playback-state'], 'playing');
     assert.ok(logs.some(line => line.includes('[plugin:' + manifest.id + ']')));
 });
+
+test('Windows CI keeps compiler and bundled C++ runtime in one VS generation', () => {
+    const windowsWorkflow = readFileSync(new URL('../.github/workflows/build-windows.yml', import.meta.url), 'utf8');
+    // Both vswhere queries pin VS2022: Qt ships msvc2022 binaries, and an
+    // unsorted First-1 once bundled a stale 14.29 CRT under a 19.51-built app,
+    // which crashed in MSVCP140 during startup (c0000005).
+    const pins = windowsWorkflow.match(/-version "\[17\.0,18\.0\)"/g) ?? [];
+    assert.equal(pins.length, 2);
+    // Newest CRT wins, and anything below 14.40 fails the job loudly.
+    assert.match(windowsWorkflow, /Sort-Object \{ \(Get-Item "\$_\\msvcp140\.dll"\)/);
+    assert.match(windowsWorkflow, /-lt \[version\]"14\.40"/);
+    assert.doesNotMatch(windowsWorkflow, /Microsoft\.VC\*\.CRT" \| Select-Object -First 1/);
+});

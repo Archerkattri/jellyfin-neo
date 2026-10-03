@@ -83,15 +83,23 @@ jobs:
       run: |
         mkdir deps
         mkdir deps/vcruntime
-        # Dynamically locate VS installation on runner
-        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+        # Pin VS2022: Qt ships msvc2022 binaries, so the compiler AND the bundled
+        # C++ runtime must come from the 17.x generation. An unsorted First-1 once
+        # grabbed a stale 14.29 CRT under a 19.51-built app and crashed on startup.
+        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version "[17.0,18.0)" -property installationPath
         if (-not $vsPath) {
             $vsPath = (Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*" | Where-Object { Test-Path "$_\VC\Redist\MSVC" } | Select-Object -First 1).FullName
         }
-        $vsRedist = Get-ChildItem "$vsPath\VC\Redist\MSVC\*\${{ matrix.vc_redist_arch }}\Microsoft.VC*.CRT" | Select-Object -First 1
-        if (-not $vsRedist) {
-            $vsRedist = Get-ChildItem "$vsPath\VC\Redist\MSVC" -Recurse -Filter "Microsoft.VC*.CRT" | Where-Object { $_.FullName -like "*${{ matrix.vc_redist_arch }}*" } | Select-Object -First 1
+        if (-not $vsPath) { throw "No Visual Studio installation found on runner" }
+        $crtDirs = Get-ChildItem "$vsPath\VC\Redist\MSVC\*\${{ matrix.vc_redist_arch }}\Microsoft.VC*.CRT"
+        if (-not $crtDirs) {
+            $crtDirs = Get-ChildItem "$vsPath\VC\Redist\MSVC" -Recurse -Filter "Microsoft.VC*.CRT" | Where-Object { $_.FullName -like "*${{ matrix.vc_redist_arch }}*" }
         }
+        if (-not $crtDirs) { throw "No VC redist CRT dir for ${{ matrix.vc_redist_arch }} under $vsPath" }
+        $vsRedist = $crtDirs | Sort-Object { (Get-Item "$_\msvcp140.dll").VersionInfo.FileVersionRaw } -Descending | Select-Object -First 1
+        $rtVer = (Get-Item "$vsRedist\msvcp140.dll").VersionInfo.FileVersionRaw
+        Write-Host "Bundling VC runtime $rtVer from $vsRedist"
+        if ($rtVer -lt [version]"14.40") { throw "VC runtime $rtVer is below the 14.40 floor; refusing to bundle a stale CRT" }
         Copy-Item "$vsRedist\*.dll" deps/vcruntime/
         # Also grab VCRedist installer for optional system-wide install
         Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.${{ matrix.vc_redist_arch }}.exe" -OutFile deps/vc_redist.${{ matrix.vc_redist_arch }}.exe
@@ -99,7 +107,7 @@ jobs:
     - name: Build
       run: |
         set "VS_PATH="
-        for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath 2^>nul') do set "VS_PATH=%%i"
+        for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version "[17.0,18.0)" -property installationPath 2^>nul') do set "VS_PATH=%%i"
         if not defined VS_PATH (
             for /d %%d in ("C:\Program Files\Microsoft Visual Studio\*") do (
                 for /d %%e in ("%%d\*") do (
