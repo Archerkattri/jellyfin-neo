@@ -24,7 +24,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ComponentManager::ComponentManager() : QObject(nullptr),
-  m_qmlProperyMap(QQmlPropertyMap::create(this))
+  m_qmlProperyMap(new QQmlPropertyMap(this))
 {
 }
 
