@@ -2,6 +2,10 @@
 
 QTROOT ?= /opt/qt/6.11.3/gcc_64
 
+# Headless builders have no display; run the ctest GUI cases offscreen
+# (same as CI's test job) with Mesa software GL.
+export QT_QPA_PLATFORM = offscreen
+
 %:
 	dh $@
 

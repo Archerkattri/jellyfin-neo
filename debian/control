@@ -41,7 +41,8 @@ Build-Depends: debhelper (>= 10),
                libxkbfile-dev,
                libxcursor-dev,
                libxi-dev,
-               libxtst-dev
+               libxtst-dev,
+               libgl1-mesa-dri
 Standards-Version: 3.9.4
 Homepage: https://jellyfin.org/
 Vcs-Git: https://github.org/jellyfin/jellyfin-desktop.git
