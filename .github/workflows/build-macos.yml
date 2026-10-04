@@ -81,11 +81,26 @@ jobs:
       run: |
         # No-op when the cache already holds this mpv revision.
         brew install mpv || true
-        # Restored kegs lose their prefix symlinks; relink everything
-        # so pkg-config and the linker see the cached install.
+        # Restored kegs lose their prefix symlinks. Relink exactly as a
+        # fresh install would (plain link skips conflicts like brew does).
         brew list --formula | while read -r f; do
-          brew link --overwrite "$f" >/dev/null 2>&1 || true
+          brew link "$f" >/dev/null 2>&1 || true
         done
+        # Keg-only formulae (libarchive, ...) refuse `brew link`, but their
+        # dependents carry absolute dylib IDs through opt/. Recreate just
+        # the opt symlinks that a fresh install creates for every keg.
+        cellar="$(brew --cellar)"
+        optdir="$(brew --prefix)/opt"
+        brew list --formula | while read -r f; do
+          if [ ! -e "$optdir/$f" ] && [ ! -L "$optdir/$f" ]; then
+            ver="$(brew list --versions "$f" | awk '{print $NF}')"
+            ln -s "../Cellar/$f/$ver" "$optdir/$f"
+          fi
+        done
+        missing="$(brew list --formula | while read -r f; do
+          [ -e "$optdir/$f" ] || echo "$f"
+        done)"
+        test -z "$missing" || { echo "missing opt links: $missing" >&2; exit 1; }
         brew list mpv >/dev/null
         pkg-config --modversion mpv
     - name: Save Homebrew mpv cache
