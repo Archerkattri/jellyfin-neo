@@ -789,6 +789,24 @@
     ]
   },
   {
+    "section": "downloads",
+    "hidden": true,
+    "values": [
+      {
+        "value": "enabled",
+        "display_name": "Enable Offline Downloads",
+        "help": "Allow downloading media for offline playback. Files are stored in the downloads directory.",
+        "default": false
+      },
+      {
+        "value": "directory",
+        "display_name": "Downloads Directory",
+        "help": "Directory where downloaded media is stored. Empty uses the active profile's downloads folder.",
+        "default": ""
+      }
+    ]
+  },
+  {
     "section": "path",
     "hidden": true,
     "values": [

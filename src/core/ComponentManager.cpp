@@ -9,6 +9,7 @@
 #include "input/InputComponent.h"
 #include "player/PlayerComponent.h"
 #include "display/DisplayComponent.h"
+#include "download/DownloadComponent.h"
 #include "system/SystemComponent.h"
 #include "settings/SettingsComponent.h"
 #include "taskbar/TaskbarComponent.h"
@@ -61,6 +62,7 @@ void ComponentManager::initialize()
   registerComponent(&InputComponent::Get());
   registerComponent(&SystemComponent::Get());
   registerComponent(&DisplayComponent::Get());
+  registerComponent(&DownloadComponent::Get());
   registerComponent(&PlayerComponent::Get());
   registerComponent(&PowerComponent::Get());
   registerComponent(&TaskbarComponent::Get());

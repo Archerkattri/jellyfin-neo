@@ -22,6 +22,7 @@ add_subdirectory(settings)
 add_subdirectory(power)
 add_subdirectory(taskbar)
 add_subdirectory(plugins)
+add_subdirectory(download)
 
 if(LINUX_DBUS)
   add_subdirectory(mpris)

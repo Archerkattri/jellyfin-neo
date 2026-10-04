@@ -99,12 +99,25 @@
         }
     }
 
+    // Tier-2 demo: announce the load through host.showToast when the host
+    // object offers it; older builds without the verb simply skip it.
+    function notifyLoaded(host, id) {
+        try {
+            if (host.host && typeof host.host.showToast === 'function') {
+                host.host.showToast('Sample Theme', 'Loaded for ' + id);
+            }
+        } catch (ignored) {
+            // Toasts are best-effort; never break the page.
+        }
+    }
+
     var host = getHost();
     if (!host) {
         return;
     }
     var id = pluginId(host);
     log(host, 'loaded for ' + id);
+    notifyLoaded(host, id);
     var badge = ensureBadge(id);
     subscribe(host, badge);
 })();

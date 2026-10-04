@@ -93,8 +93,8 @@ window.NativeShell = {
 // to a safe no-op when window.api is unavailable, and the plugin context
 // stays null until a manifest passes window._validatePluginManifest
 // (fail-closed; the validator lives in native/pluginManifest.js and is wired
-// in by the loader lane -- never reimplemented here). Deliberately no
-// Phase-2 surface: no capability checks, no plugin host-command verbs, no
+// in by the loader lane -- never reimplemented here). Tier-2 adds two host
+// verbs (host.showToast, host.nowPlaying); still no capability checks, no
 // WebChannel publishing, no signatures.
 if (typeof window.JellyfinDesktop === 'undefined') {
     try {
@@ -116,6 +116,113 @@ if (typeof window.JellyfinDesktop === 'undefined') {
                     && entry.signalName === signalName
                     && entry.callback === callback
                 ));
+            }
+
+            // Tier-2 now-playing cache: fed lazily from window.api.player
+            // signals (the same metadata/position/state the JS notify* calls
+            // push into PlayerComponent), so host.nowPlaying() degrades to
+            // null when the bridge is unavailable.
+            const nowPlayingCache = {
+                title: null,
+                artist: null,
+                album: null,
+                mediaType: null,
+                state: null,
+                positionMs: null,
+                durationMs: null
+            };
+            let nowPlayingSubscribed = false;
+            const activeToasts = [];
+
+            function resetNowPlaying() {
+                nowPlayingCache.title = null;
+                nowPlayingCache.artist = null;
+                nowPlayingCache.album = null;
+                nowPlayingCache.mediaType = null;
+                nowPlayingCache.state = null;
+                nowPlayingCache.positionMs = null;
+                nowPlayingCache.durationMs = null;
+            }
+
+            function hasNowPlayingData() {
+                return nowPlayingCache.title !== null
+                    || nowPlayingCache.state !== null
+                    || nowPlayingCache.positionMs !== null
+                    || nowPlayingCache.durationMs !== null;
+            }
+
+            function onNowPlayingMetadata(metadata) {
+                try {
+                    if (!metadata || typeof metadata !== 'object') {
+                        return;
+                    }
+                    if (typeof metadata.Name === 'string' && metadata.Name.length > 0) {
+                        nowPlayingCache.title = metadata.Name;
+                    }
+                    if (Array.isArray(metadata.Artists) && metadata.Artists.length > 0) {
+                        nowPlayingCache.artist = String(metadata.Artists[0]);
+                    } else if (typeof metadata.AlbumArtist === 'string' && metadata.AlbumArtist.length > 0) {
+                        nowPlayingCache.artist = metadata.AlbumArtist;
+                    }
+                    if (typeof metadata.Album === 'string' && metadata.Album.length > 0) {
+                        nowPlayingCache.album = metadata.Album;
+                    }
+                    if (typeof metadata.MediaType === 'string' && metadata.MediaType.length > 0) {
+                        nowPlayingCache.mediaType = metadata.MediaType;
+                    }
+                } catch (e) {
+                    // Cache updates never throw into signal delivery.
+                }
+            }
+
+            function ensureNowPlayingSubscription() {
+                if (nowPlayingSubscribed) {
+                    return;
+                }
+                const player = apiObject('player');
+                if (!player) {
+                    return;
+                }
+                const wires = [
+                    ['metadataChanged', onNowPlayingMetadata],
+                    ['playbackStateChanged', state => { nowPlayingCache.state = String(state); }],
+                    ['positionChanged', ms => { if (typeof ms === 'number') { nowPlayingCache.positionMs = ms; } }],
+                    ['durationChanged', ms => { if (typeof ms === 'number') { nowPlayingCache.durationMs = ms; } }],
+                    ['playbackStopped', () => { resetNowPlaying(); }]
+                ];
+                let wired = false;
+                for (const [signalName, handler] of wires) {
+                    try {
+                        const signal = player[signalName];
+                        if (signal && typeof signal.connect === 'function') {
+                            signal.connect((...args) => {
+                                try {
+                                    handler(...args);
+                                } catch (e) {
+                                    console.error('JellyfinDesktop now-playing handler failed:', e);
+                                }
+                            });
+                            wired = true;
+                        }
+                    } catch (e) {
+                        // Missing signals are fine; retry on the next call.
+                    }
+                }
+                nowPlayingSubscribed = wired;
+            }
+
+            function removeToast(element) {
+                try {
+                    const index = activeToasts.indexOf(element);
+                    if (index !== -1) {
+                        activeToasts.splice(index, 1);
+                    }
+                    if (element && typeof element.remove === 'function') {
+                        element.remove();
+                    }
+                } catch (e) {
+                    // Best-effort cleanup.
+                }
             }
 
             return {
@@ -253,6 +360,82 @@ if (typeof window.JellyfinDesktop === 'undefined') {
                             return true;
                         } catch (e) {
                             return false;
+                        }
+                    },
+                    // Tier-2: in-page toast notification. Renders a small
+                    // overlay (textContent only, never innerHTML); at most 3
+                    // concurrent toasts, oldest dismissed first. options:
+                    // { durationMs } auto-dismiss delay, 0 keeps it sticky.
+                    showToast(title, message, options) {
+                        try {
+                            if (typeof title !== 'string' || title.length === 0
+                                    || typeof message !== 'string' || message.length === 0) {
+                                return false;
+                            }
+                            if (typeof document === 'undefined' || !document
+                                    || typeof document.createElement !== 'function') {
+                                return false;
+                            }
+                            const parent = document.body || document.documentElement;
+                            if (!parent || typeof parent.appendChild !== 'function') {
+                                return false;
+                            }
+                            const durationMs = options && typeof options.durationMs === 'number'
+                                && options.durationMs >= 0 ? options.durationMs : 4000;
+                            while (activeToasts.length >= 3) {
+                                removeToast(activeToasts[0]);
+                            }
+                            const toast = document.createElement('div');
+                            toast.setAttribute('data-plugin-toast', context.id || '');
+                            toast.style.position = 'fixed';
+                            toast.style.left = '16px';
+                            toast.style.bottom = '16px';
+                            toast.style.zIndex = '10000';
+                            toast.style.maxWidth = '320px';
+                            toast.style.padding = '10px 14px';
+                            toast.style.borderRadius = '6px';
+                            toast.style.background = 'rgba(20, 20, 26, 0.92)';
+                            toast.style.color = '#ffffff';
+                            toast.style.fontSize = '13px';
+                            const heading = document.createElement('div');
+                            heading.textContent = title;
+                            heading.style.fontWeight = 'bold';
+                            heading.style.marginBottom = '2px';
+                            const body = document.createElement('div');
+                            body.textContent = message;
+                            toast.appendChild(heading);
+                            toast.appendChild(body);
+                            parent.appendChild(toast);
+                            activeToasts.push(toast);
+                            if (durationMs > 0 && typeof setTimeout === 'function') {
+                                setTimeout(() => { removeToast(toast); }, durationMs);
+                            }
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
+                    },
+                    // Tier-2: now-playing info provider. Returns a snapshot
+                    // { title, artist, album, mediaType, state, positionMs,
+                    // durationMs } (unknown fields are null), or null when
+                    // nothing has played yet / the bridge is unavailable.
+                    nowPlaying() {
+                        try {
+                            ensureNowPlayingSubscription();
+                            if (!hasNowPlayingData()) {
+                                return null;
+                            }
+                            return {
+                                title: nowPlayingCache.title,
+                                artist: nowPlayingCache.artist,
+                                album: nowPlayingCache.album,
+                                mediaType: nowPlayingCache.mediaType,
+                                state: nowPlayingCache.state,
+                                positionMs: nowPlayingCache.positionMs,
+                                durationMs: nowPlayingCache.durationMs
+                            };
+                        } catch (e) {
+                            return null;
                         }
                     }
                 },

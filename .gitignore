@@ -29,6 +29,7 @@ build/
 # Python virtualenvs.
 .venv/
 venv/
+aqt-venv/
 # JS tooling.
 node_modules/
 # Python bytecode caches (companion to *.pyc above).

@@ -2474,7 +2474,8 @@ test('plugin1-host-settings-read-and-subscribe', () => {
 test('plugin1-host-allowlist-only', () => {
     const opened = [];
     const { host } = loadPlugin1Host({ api: { system: { openExternalUrl(url) { opened.push(url); } } } });
-    assert.deepEqual(Object.keys(host.host).sort(), ['jsLog', 'log', 'openExternalUrl']);
+    // Tier-2 verbs included; the allowlist stays exact so new host surface needs review.
+    assert.deepEqual(Object.keys(host.host).sort(), ['jsLog', 'log', 'nowPlaying', 'openExternalUrl', 'showToast']);
     assert.equal(host.host.exit, undefined);
     assert.equal(host.host.runUserScript, undefined);
     assert.equal(host.host.log, host.host.jsLog);
