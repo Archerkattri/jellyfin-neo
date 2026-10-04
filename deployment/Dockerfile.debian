@@ -37,7 +37,7 @@ RUN apt-get update \
  && test -f "${QTROOT}/lib/cmake/Qt6/Qt6Config.cmake" \
  && test -f "${QTROOT}/lib/libQt6SerialPort.so.${QT_VERSION}" \
  && grep -Fq "set(PACKAGE_VERSION \"${QT_VERSION}\")" \
-      "${QTROOT}/lib/cmake/Qt6/Qt6ConfigVersion.cmake" \
+      "${QTROOT}/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake" \
  && case "${QT_VERSION}" in 6.12*) \
       EXT_VERSION="6.12.0-0-202609281005"; \
       EXT_PKG="extensions.qtwebengine.6120.61400.linux_gcc_64"; \
