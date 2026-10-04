@@ -14,7 +14,8 @@ DEBVER="${IMGSNIP}${RELVER}"
 cp -a debian/changelog /changelog.orig
 sed -i "1 s/-1)/+${DEBVER})/" debian/changelog
 
-# install deps
+# install deps (refresh apt lists: the image build wipes /var/lib/apt/lists)
+apt-get update
 echo y | mk-build-deps -i
 rm jellyfin-desktop-build-deps_*
 
