@@ -1,8 +1,17 @@
-# Jellyfin Neo v2.1.0 (DRAFT — do not publish as-is)
+# Jellyfin Neo v2.1.0 release notes (planning draft)
 
-First stable release of the Neo fork. Cut only after: full CI matrix green,
-Windows portable + installer smoke, macOS DMG launch on both archs, AppImage
-launch, and a playback pass against a real server.
+The published notes are the `## v2.1.0` section of CHANGELOG.md (also the
+GitHub Release body, extracted automatically at tag time). This file keeps
+the planning list and the verification record.
+
+## Verification record for the v2.1.0 cut
+
+- Full CI matrix green on every platform (Windows x64/ARM64, macOS
+  arm64/x86_64, AppImage, Debian/Ubuntu) plus node 156/156.
+- Windows portable smoke passed on the owner machine (launch, no crash).
+- NOT verified before cut: macOS DMG first launch, AppImage first launch,
+  and playback against a real server (no server was available). Buyer
+  beware on those paths; see Known limitations.
 
 ## Highlights
 
@@ -21,7 +30,7 @@ launch, and a playback pass against a real server.
 ## Known limitations
 
 - True HDR output is still blocked upstream (mpv render API + Qt Quick).
-- Offline downloads: server-negotiation probes only; queue/UI still in progress.
+- Offline downloads: Phase 1 native single-file downloader with resume; queue/UI still in progress.
 - macOS builds are ad-hoc signed unless signing secrets are configured. If
   Gatekeeper blocks first launch, right-click the app and choose Open.
 - Intel Mac build uses conda-forge libmpv 0.41.0 (Homebrew has no Intel bottles).

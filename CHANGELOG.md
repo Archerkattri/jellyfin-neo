@@ -17,6 +17,8 @@ Qt 6.11.3 baseline with playback, reliability, accessibility, and desktop UI imp
 - Harden update checks, settings fallbacks, log rotation, and Windows/mpv dependency setup.
 - Expand native and JavaScript regression coverage and run it in platform CI.
 - Build Windows, macOS, Debian/Ubuntu, and AppImage release assets from a version tag; include SHA-256 checksums.
+- Add offline downloads Phase 1: a native single-file downloader with resume support, gated downloads settings, and a JavaScript bridge for queue probes.
+- Extend the plugin system with Tier-2 install/uninstall from local folders, `host.showToast` / `host.nowPlaying` verbs, and a sample theme plugin.
 
 ### Install
 
