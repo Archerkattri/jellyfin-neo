@@ -35,7 +35,13 @@ Build-Depends: debhelper (>= 10),
                unzip,
                xz-utils,
                libnss3-dev,
-               libnspr4-dev
+               libnspr4-dev,
+               libxcomposite-dev,
+               libxdamage-dev,
+               libxkbfile-dev,
+               libxcursor-dev,
+               libxi-dev,
+               libxtst-dev
 Standards-Version: 3.9.4
 Homepage: https://jellyfin.org/
 Vcs-Git: https://github.org/jellyfin/jellyfin-desktop.git
