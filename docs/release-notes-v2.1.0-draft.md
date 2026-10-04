@@ -22,8 +22,9 @@ the planning list and the verification record.
   buffer/cache, gapless music, resample A/V-sync default, segment auto-skip,
   per-client bitrate cap, HDR preference + diagnostics
 - Everyday UX: picture-in-picture toggle, screenshot keybind (Ctrl+S), in-app
-  profile switching, window size/position memory, volume boost to 300%,
-  KDE Wayland refresh-rate switching
+  profile switching, window size/position memory, volume boost to 300%.
+  (KDE Wayland refresh-rate switching code is in-tree but NOT enabled in
+  v2.1.0 builds: no target packages plasma-wayland-protocols yet.)
 - Platform: Windows ARM64 binaries, Qt 6.11.3, macOS cursor/window fixes,
   CoreAudio hotplug fix in the bundled mpv, Windows pre-AVX2 fallback libmpv
 

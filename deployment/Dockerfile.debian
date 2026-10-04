@@ -30,8 +30,8 @@ RUN apt-get update \
  && python3 -m venv /opt/aqt-venv \
  && /opt/aqt-venv/bin/python -m pip install --disable-pip-version-check \
       "git+https://github.com/miurahr/aqtinstall.git@${AQT_REVISION}" \
- && QT_MODULES="qtwebengine qtwebchannel qtpositioning qtserialport qtwayland" \
- && case "${QT_VERSION}" in 6.12*) QT_MODULES="qtwebchannel qtpositioning qtserialport qtwayland" ;; esac \
+ && QT_MODULES="qtwebengine qtwebchannel qtpositioning qtserialport" \
+ && case "${QT_VERSION}" in 6.12*) QT_MODULES="qtwebchannel qtpositioning qtserialport" ;; esac \
  && /opt/aqt-venv/bin/python -m aqt install-qt linux desktop "${QT_VERSION}" linux_gcc_64 \
       --outputdir /opt/qt -m ${QT_MODULES} \
  && test -f "${QTROOT}/lib/cmake/Qt6/Qt6Config.cmake" \
