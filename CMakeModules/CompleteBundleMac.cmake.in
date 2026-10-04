@@ -11,18 +11,32 @@ execute_process(
 set(brew_lib "${brew_prefix}/lib")
 set(brew_qt_lib "${brew_prefix}/opt/qt/lib")
 
+# Optional extra dependency prefix (e.g. a conda env providing libmpv on
+# Intel, where Homebrew has no bottles). Empty unless MPV_PREFIX is set.
+set(extra_lib "")
+if(DEFINED ENV{MPV_PREFIX} AND NOT "$ENV{MPV_PREFIX}" STREQUAL "")
+  set(extra_lib "$ENV{MPV_PREFIX}/lib")
+endif()
+
 set(args ${app})
 list(APPEND args "-verbose=2")
 list(APPEND args "-qmldir=@SOURCE_ROOT@/src/ui")
 list(APPEND args "-libpath=@QTROOT@/lib")
 list(APPEND args "-libpath=${brew_qt_lib}")
 list(APPEND args "-libpath=${brew_lib}")
+if(extra_lib)
+  list(APPEND args "-libpath=${extra_lib}")
+endif()
 foreach(BIN ${BINS})
   list(APPEND args "-executable=${app}/${BIN}")
 endforeach(BIN ${BINS})
 
-set(ENV{DYLD_LIBRARY_PATH} @QTROOT@/lib:${brew_qt_lib}:${brew_lib}:@DEPENDENCY_ROOT@/lib)
-set(ENV{DYLD_FRAMEWORK_PATH} @QTROOT@/lib:${brew_qt_lib}:${brew_lib}:@DEPENDENCY_ROOT@/lib)
+set(dyld_path "@QTROOT@/lib:${brew_qt_lib}:${brew_lib}:@DEPENDENCY_ROOT@/lib")
+if(extra_lib)
+  set(dyld_path "${dyld_path}:${extra_lib}")
+endif()
+set(ENV{DYLD_LIBRARY_PATH} "${dyld_path}")
+set(ENV{DYLD_FRAMEWORK_PATH} "${dyld_path}")
 
 execute_process(
   COMMAND ${CMAKE_COMMAND} -E remove "${app}/Contents/Resources/qt.conf"
@@ -77,6 +91,9 @@ function(fix_lib_dependencies lib framework_libs_var)
         # Add Cellar paths - some libs (like libjxl_cms) aren't symlinked to main lib dir
         file(GLOB cellar_candidates "${brew_prefix}/Cellar/*/*/lib/${dep_name}")
         list(APPEND search_paths ${cellar_candidates})
+        if(extra_lib)
+          list(APPEND search_paths "${extra_lib}/${dep_name}")
+        endif()
 
         set(resolved_path "")
         foreach(candidate ${search_paths})
@@ -96,6 +113,9 @@ function(fix_lib_dependencies lib framework_libs_var)
         set(search_paths "${brew_lib}/${dep_name}")
         file(GLOB cellar_candidates "${brew_prefix}/Cellar/*/*/lib/${dep_name}")
         list(APPEND search_paths ${cellar_candidates})
+        if(extra_lib)
+          list(APPEND search_paths "${extra_lib}/${dep_name}")
+        endif()
 
         set(resolved_path "")
         foreach(candidate ${search_paths})
@@ -135,6 +155,10 @@ function(fix_lib_dependencies lib framework_libs_var)
           # Resolve the framework binary path
           string(REGEX REPLACE "^@rpath" "${brew_lib}" resolved_fw "${dependency_str}")
           string(REGEX REPLACE "^@loader_path" "${brew_lib}" resolved_fw "${resolved_fw}")
+          if(extra_lib AND NOT EXISTS "${resolved_fw}")
+            string(REGEX REPLACE "^@rpath" "${extra_lib}" resolved_fw "${dependency_str}")
+            string(REGEX REPLACE "^@loader_path" "${extra_lib}" resolved_fw "${resolved_fw}")
+          endif()
 
           if(EXISTS "${resolved_fw}")
             get_filename_component(real_path "${resolved_fw}" REALPATH)

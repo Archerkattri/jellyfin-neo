@@ -57,6 +57,7 @@ jobs:
         python3 -m pip install --disable-pip-version-check py7zr
         bash dev/qt/fetch-qtwebengine-ext.sh --qt-root "$QT_ROOT_DIR" --qt-version "${{ env.QT_VERSION }}" --python python3
     - name: Resolve Homebrew cache key
+      if: matrix.architecture == 'arm64'
       id: brew-cache-key
       run: |
         brew update
@@ -65,6 +66,7 @@ jobs:
         mpv_rev="$(brew info --json=v2 --formula mpv | jq -r '.formulae[0] | "\(.versions.stable)_r\(.revision)"')"
         echo "mpv=$mpv_rev" >> "$GITHUB_OUTPUT"
     - name: Restore Homebrew mpv cache
+      if: matrix.architecture == 'arm64'
       id: brew-cache
       uses: actions/cache/restore@v4
       with:
@@ -75,6 +77,7 @@ jobs:
         restore-keys: |
           brew-mpv-${{ runner.os }}-${{ matrix.architecture }}-
     - name: Install dependencies
+      if: matrix.architecture == 'arm64'
       run: |
         # No-op when the cache already holds this mpv revision.
         brew install mpv || true
@@ -86,13 +89,25 @@ jobs:
         brew list mpv >/dev/null
         pkg-config --modversion mpv
     - name: Save Homebrew mpv cache
-      if: steps.brew-cache.outputs.cache-hit != 'true'
+      if: matrix.architecture == 'arm64' && steps.brew-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: |
           ${{ steps.brew-cache-key.outputs.cellar }}
           ${{ steps.brew-cache-key.outputs.dlcache }}
         key: brew-mpv-${{ runner.os }}-${{ matrix.architecture }}-${{ steps.brew-cache-key.outputs.mpv }}
+    - name: Install Intel libmpv (conda-forge)
+      if: matrix.architecture == 'x86_64'
+      run: |
+        # Homebrew publishes no Intel bottles for mpv or its heavy deps
+        # (ffmpeg, aom, llvm, ...), and a from-source build exceeds the
+        # 6h job limit. conda-forge ships osx-64 libmpv binaries instead.
+        curl -Ls micro.mamba.pm/api/micromamba/osx-64/latest | tar -xvj -C /tmp bin/micromamba
+        /tmp/bin/micromamba create -y -p "$RUNNER_TEMP/mpv-prefix" -c conda-forge mpv=0.41
+        echo "MPV_PREFIX=$RUNNER_TEMP/mpv-prefix" >> "$GITHUB_ENV"
+        echo "PKG_CONFIG_PATH=$RUNNER_TEMP/mpv-prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+        "$RUNNER_TEMP/mpv-prefix/bin/mpv" --version | head -1
+        PKG_CONFIG_PATH="$RUNNER_TEMP/mpv-prefix/lib/pkgconfig" pkg-config --modversion mpv
     - name: Release build and native tests
       run: |
         set -o pipefail
